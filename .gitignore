@@ -1,0 +1,5 @@
+**/build/**
+**/install/*
+**/log/*
+succulence_ws/src/succulence_rover_ros/log/*
+succulence_ws/src/succulence_rover_ros/build/*
