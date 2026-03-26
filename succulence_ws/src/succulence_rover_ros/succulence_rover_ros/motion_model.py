@@ -69,8 +69,8 @@ def compute_motion_covariance(relative_pose: np.ndarray,
           Sigma_new = J1 @ Sigma_old @ J1^T + J2 @ Q @ J2^T
     """
     # TODO: YOUR CODE HERE (~7 lines)
-    delta_trans = sqrt(dx**2 + dy**2)
-    delta_rot   = np.abs(dtheta)
+    delta_trans = np.sqrt(relative_pose[0]**2 + relative_pose[1]**2)
+    delta_rot   = np.abs(relative_pose[2])
     
     # Varience in going stright + varience in turning
     ## (NOTE) Varience in x and varience in y are the same

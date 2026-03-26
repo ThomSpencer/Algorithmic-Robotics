@@ -80,10 +80,10 @@ occupancy_grid_mapper:
       height: 700            # cells (35m total height)
       origin_x: -25.0        # metres (grid covers -25 to +25 in x)
       origin_y: -17.5        # metres (grid covers -17.5 to +17.5 in y)
-      log_odds_occupied:     # COMPLETE
-      log_odds_free:         # COMPLETE
-      log_odds_max:          # COMPLETE
-      log_odds_min:          # COMPLETE
+      log_odds_occupied: 0.85    # COMPLETE
+      log_odds_free: -0.4        # COMPLETE
+      log_odds_max: 5            # COMPLETE
+      log_odds_min: -5           # COMPLETE
       max_range: 12.0        # metres (ignore readings beyond this)
       min_range: 0.1         # metres (ignore readings closer than this)
 
