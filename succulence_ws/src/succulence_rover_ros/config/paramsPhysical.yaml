@@ -16,9 +16,9 @@ motion_model:
   ros__parameters:
     # --- Input topic ---
     # === Virtual robot (Gazebo / simulation) ===
-    odom_topic: "/succulence/odom"
+    # odom_topic: "/succulence/odom"
     # === Physical robot (TurtleBot) ===
-    # odom_topic: "/odom"
+    odom_topic: "/odom"
 
     # --- Output topics ---
     dead_reckoning:
@@ -28,11 +28,11 @@ motion_model:
     # --- Frame names ---
     frames:
       # === Virtual robot ===
-      odom_frame: "succulence/odom"
-      base_link_frame: "succulence/base_link"
+      # odom_frame: "succulence/odom"
+      # base_link_frame: "succulence/base_link"
       # === Physical robot ===
-      # odom_frame: "odom"
-      # base_link_frame: "base_link"
+      odom_frame: "odom"
+      base_link_frame: "base_link"
       map_frame: "map"
 
     # --- Lidar mounting offset (base_link → lidar) ---
@@ -49,10 +49,10 @@ motion_model:
     # Larger values = faster uncertainty growth = more ghost walls.
     # See Probabilistic Robotics (Thrun et al., 2005), Table 5.3.
     motion_model:
-      alpha1: 0.1    # translation variance from translation (wheel slip)
-      alpha2: 0.05   # translation variance from rotation
-      alpha3: 0.05   # rotation variance from translation
-      alpha4: 0.2    # rotation variance from rotation
+      alpha1: 0.2    # translation variance from translation (wheel slip)
+      alpha2: 0.1   # translation variance from rotation
+      alpha3: 0.1   # rotation variance from translation
+      alpha4: 0.4    # rotation variance from rotation
       max_trajectory_length: 1000
 
 
@@ -63,9 +63,9 @@ occupancy_grid_mapper:
   ros__parameters:
     # --- Topics ---
     # === Virtual robot ===
-    scan_topic: "/succulence/scan"
+    # scan_topic: "/succulence/scan"
     # === Physical robot ===
-    # scan_topic: "/scan"
+    scan_topic: "/scan"
 
     odom_topic: "/succulence/dead_reckoning/odometry"
     map_topic: "/succulence/map/odom_only"
@@ -101,11 +101,11 @@ slam_node:
   ros__parameters:
     # --- Input topics ---
     # === Virtual robot ===
-    scan_topic: "/succulence/scan"
-    odom_topic: "/succulence/odom"
+    # scan_topic: "/succulence/scan"
+    # odom_topic: "/succulence/odom"
     # === Physical robot ===
-    # scan_topic: "/scan"
-    # odom_topic: "/odom"
+    scan_topic: "/scan"
+    odom_topic: "/odom"
 
     # --- Output topics ---
     map_topic: "/succulence/map"
@@ -152,8 +152,8 @@ slam_node:
     # --- Occupancy grid (same as Week 5) ---
     occupancy_grid:
       resolution: 0.05
-      width: 1500
-      height: 1000
+      width: 1000
+      height: 700
       origin_x: -25.0
       origin_y: -17.5
       log_odds_occupied: 0.85

@@ -32,7 +32,7 @@ import os
 def generate_launch_description():
     # Config file path
     config_dir = os.path.join(os.path.dirname(__file__), '..', 'config')
-    params_file = os.path.join(config_dir, 'params.yaml')
+    params_file = os.path.join(config_dir, 'paramsPhysical.yaml')
 
     # Launch arguments for frame names (override for different robots)
     odom_frame_arg = DeclareLaunchArgument(
