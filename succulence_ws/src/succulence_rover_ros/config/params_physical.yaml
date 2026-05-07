@@ -103,8 +103,8 @@ occupancy_grid_mapper:
       # height / resolution, defines which world region the grid covers.
       # Increase: grid window shifts in the +x / +y direction.
       # Decrease: grid window shifts in the opposite direction.
-      origin_x: 0.0
-      origin_y: 0.0
+      origin_x: -1.0
+      origin_y: -1.0
 
       # Log-odds increment added to a cell when a scan ray ends in it
       # (i.e. cell is observed occupied).
@@ -135,7 +135,7 @@ occupancy_grid_mapper:
       # max_range Smaller: only nearby returns trusted, smaller built map.
       # min_range Larger: ignores closer returns (filters body reflections).
       # min_range Smaller: includes closer returns (risks self-hits).
-      max_range: 3.0
+      max_range: 5.0
       min_range: 0.1
 
     # See motion_model.lidar above for offsets.
@@ -290,7 +290,7 @@ planner_node:
       # Larger: stable plans, slower reaction to newly mapped obstacles.
       # Smaller: reacts faster but the path can visibly jitter as the
       #   map fills in.
-      replan_period: 1.0
+      replan_period: 5.0
 
       # Cell value (0..100) at or above which a cell is treated as an
       # obstacle by A*.
@@ -298,7 +298,7 @@ planner_node:
       #   paths cut closer to walls.
       # Smaller: any hint of occupancy blocks A* -> safer but more
       #   "no path" failures while the map is sparse.
-      occupancy_threshold: 50
+      occupancy_threshold: 65
 
       # If true, unmapped cells are treated as obstacles. If false, A*
       # plans optimistically through unknown space and replans as the
@@ -315,14 +315,14 @@ planner_node:
       # Larger: paths stay further from obstacles; narrow gaps may
       #   inflate shut and become "no path".
       # Smaller: paths hug walls; rover may scrape corners.
-      inflation_radius_cells: 1.0
+      inflation_radius_cells: 3.0
 
     # Hardcoded mission goal (Kevin's location), in the map frame.
     # Increase x: goal moves east. Decrease x: goal moves west.
     # Increase y: goal moves north. Decrease y: goal moves south.
     goal:
-      x: -1.0
-      y: 1.36
+      x: 0.5
+      y: 2.0
 
 
 # ====================================================================
@@ -346,7 +346,7 @@ navigator_node:
       # arc to it.
       # Larger: gentle, sweeping turns; cuts corners.
       # Smaller: aggressive, tight tracking of the path; can oscillate.
-      lookahead: 1.5
+      lookahead: 0.25
 
       # Maximum forward speed in m/s.
       # Larger: faster mission completion but stresses scan matching and
@@ -372,4 +372,4 @@ navigator_node:
       #   planner.
       # Smaller: faster emergency stop, may trigger spuriously between
       #   normal replans.
-      plan_timeout: 6.0
+      plan_timeout: 15.0

@@ -56,7 +56,12 @@ def _octile(a: Cell, b: Cell) -> float:
         - Use abs() and min().
     """
     # TODO: YOUR CODE HERE
-    pass
+    dr = abs(a[0] - b[0])
+    dc = abs(a[1] - b[1])
+    
+    straight_cost = dr + dc
+    diagonal_cost = (_SQRT2 - 2) * min(dr, dc)
+    return straight_cost + diagonal_cost
 
 
 def inflate_obstacles(grid: np.ndarray, radius_cells: int,

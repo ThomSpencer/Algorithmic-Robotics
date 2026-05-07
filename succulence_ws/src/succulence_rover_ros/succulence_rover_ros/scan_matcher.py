@@ -89,15 +89,28 @@ class ScanMatcher:
             - ~10-15 lines of code
         """
         # TODO: YOUR CODE HERE
-        grid = np.zeros(self.local_grid_size * self.local_grid_size)
+
+        # Initialize the grid
+        grid = np.zeros((self.local_grid_size, self.local_grid_size))
+
+        # Compute the center offset
         offset = self.local_grid_size // 2
-        for (x,y) in scan_points:
-            col_idx = int(x / self.local_grid_resolution) + offset
-            row_idx = int(y / self.local_grid_resolution) + offset
-            
-            if abs(col_idx) < self.local_grid_size and abs(row_idx) < self.local_grid_size:
-                grid[col_idx, row_idx] = 1.0 
-        return maximum_filter(grid,size=3)
+
+        # Converting scan points into grid points
+        cols = (scan_points[:, 0] / self.local_grid_resolution).astype(int) + offset
+        rows = (scan_points[:, 1] / self.local_grid_resolution).astype(int) + offset
+
+        # Determining if cells are valid or not
+        valid = (
+        (rows >= 0) & (rows < self.local_grid_size) &
+        (cols >= 0) & (cols < self.local_grid_size)
+        )
+
+        grid[rows[valid], cols[valid]] = 1.0 # Set valid grid cells to 1
+        grid = maximum_filter(grid, size=3) # Dilate by 3
+
+        return grid
+        
 
     # ========================================================================
     # STUDENT TODO #2: Score Alignment
@@ -134,23 +147,35 @@ class ScanMatcher:
             - ~10-15 lines of code
         """
         # TODO: YOUR CODE HERE
+        # Need to extract the actual candidate pose
         dx, dy, dtheta = pose
-        c = np.cos(dtheta)
-        s = np.sin(dtheta)
+        # Those points' cos and sin roations are calculated
+        c, s = np.cos(dtheta), np.sin(dtheta)
+
         offset = self.local_grid_size // 2
+
+        # Take our scan points
+        px = scan_points[:, 0]
+        py = scan_points[:, 1]
+
+        # Apply transformation
+        tx = c * px - s * py + dx
+        ty = s * px + c * py + dy
+
+        cols = (tx / self.local_grid_resolution).astype(int) + offset
+        rows = (ty / self.local_grid_resolution).astype(int) + offset
+
+        # Keep only points that fall inside the grid bounds.
+        valid = (
+            (rows >= 0) & (rows < self.local_grid_size) &
+            (cols >= 0) & (cols < self.local_grid_size)
+        )
         
-        score = 0
+        score = np.sum(grid[rows[valid], cols[valid]] > 0) # Is there an overlap?
+
+        # Return as float to match the function signature.
+        return float(score)
         
-        for (px, py) in scan_points:
-            px_prime = c*px - s*py + dx  
-            py_prime = s*px + c*py + dy
-            
-            col = int(px_prime / self.local_grid_resolution) + offset
-            row = int(py_prime / self.local_grid_resolution) + offset
-            
-            if abs(col) < self.local_grid_size and abs(row) < self.local_grid_size and grid[col, row] > 0:
-                score += 1.0 
-        return score
 
     # ========================================================================
     # STUDENT TODO #3: Main Scan Matching Function
@@ -241,16 +266,44 @@ class ScanMatcher:
         # After the loop:
         #   - Compute normalised_score = best_score / len(scan_new)
         #   - If normalised_score < self.min_score: return (initial_guess, default_cov, 0.0)
+
+        for ix, x in enumerate(x_values):
+            for iy, y in enumerate(y_values):
+                for it, theta in enumerate(theta_values):
+                    # Build the candidate pose
+                    candidate = np.array([x, y, theta])
+
+                    # Compute how well this pose aligns the new scan to the reference grid
+                    score = self._score_alignment(ref_grid, scan_new, candidate)
+
+                    # Store the score at this search-grid index
+                    scores[(ix, iy, it)] = score
+
+                    # Update best result if this candidate is better
+                    if score > best_score:
+                        best_score = score
+                        best_pose = candidate
+                        best_idx = (ix, iy, it) #Build the candidate pose
+                    candidate = np.array([x, y, theta])
+
+                    # Compute how well this pose aligns the new scan to the reference grid
+                    score = self._score_alignment(ref_grid, scan_new, candidate)
+
+                    # Store the score at this search-grid index
+                    scores[(ix, iy, it)] = score
+
+                    # Update best result if this candidate is better
+                    if score > best_score:
+                        best_score = score
+                        best_pose = candidate
+                        best_idx = (ix, iy, it)
         
-        for (x, y, theta) in x_values, y_values, theta_values:
-            candidate_pose = [x,y,theta]
-            candidate_score = self._score_alignment(ref_grid, scan_new, candidate_pose)
-            scores[(x,y,theta)] = candidate_score
-            
-            if candidate_score > best_score:
-                best_score = candidate_score
-                best_pose = candidate_pose
-                best_idx = candidate_pose
+        # Convert the raw overlap count into a fraction of scan points matched
+        normalized_score = best_score / len(scan_new)
+
+        # Reject weak matches
+        if normalized_score < self.min_score:
+            return initial_guess.copy(), default_cov, 0.0
 
         # Step 4: Estimate covariance from the Hessian of the score surface
         covariance = self._estimate_covariance_from_hessian(
