@@ -1,21 +1,5 @@
 """
-Pose Graph SLAM Node (Week 7)
-
-This is the main SLAM node that ties together all previous weeks:
-  - Week 5: Motion model (odometry + covariance) and occupancy grid mapping
-  - Week 6: Scan matching for drift correction
-
-The node builds a pose graph from keyframes, with edges from both odometry
-and scan matching. Periodically, the graph is optimised using Gauss-Newton
-to produce a globally consistent trajectory and a clean map.
-
-Student tasks:
-  - Implement _should_add_keyframe()   — keyframe selection
-  - Fill in 4 guided sections in _process_keyframe() — the SLAM loop
-
-References:
-  - Grisetti et al., "A Tutorial on Graph-Based SLAM" (2010)
-  - Lecture 07: Pose Graph SLAM
+Pose Graph SLAM Node (Week 7) — SOLUTION
 """
 
 import numpy as np
@@ -34,23 +18,15 @@ from .scan_matcher import ScanMatcher, scans_from_ranges
 from .pose_graph import PoseGraph
 from . import graph_optimizer
 
-# Reuse the motion covariance function you implemented in Week 5!
 from .motion_model import compute_motion_covariance
 
 
 class SlamNode(Node):
-    """
-    ROS2 node implementing pose graph SLAM.
-
-    Subscribes to raw odometry and laser scans, builds a pose graph
-    with keyframes, optimises it, and publishes a corrected map and
-    trajectory.
-    """
+    """ROS2 node implementing pose graph SLAM."""
 
     def __init__(self):
         super().__init__('slam_node')
 
-        # --- Parameter declarations (all values come from params.yaml) ---
         self.declare_parameter('scan_topic')
         self.declare_parameter('odom_topic')
         self.declare_parameter('map_topic')
@@ -96,7 +72,6 @@ class SlamNode(Node):
         self.declare_parameter('lidar.y_offset')
         self.declare_parameter('lidar.yaw_offset')
 
-        # --- Read parameters ---
         scan_topic = self.get_parameter('scan_topic').value
         odom_topic = self.get_parameter('odom_topic').value
         map_topic = self.get_parameter('map_topic').value
@@ -118,7 +93,6 @@ class SlamNode(Node):
 
         self.lidar_yaw_offset = self.get_parameter('lidar.yaw_offset').value
 
-        # --- Create sub-components ---
         self.scan_matcher = ScanMatcher(
             search_x=self.get_parameter('scan_matcher.search_x').value,
             search_y=self.get_parameter('scan_matcher.search_y').value,
@@ -150,22 +124,19 @@ class SlamNode(Node):
 
         self.pose_graph = PoseGraph()
 
-        # --- Internal odometry state ---
         self.prev_odom_pose: Optional[np.ndarray] = None
         self.current_odom_pose = np.array([0.0, 0.0, 0.0])
         self.current_odom_cov = np.zeros((3, 3))
 
-        # --- Keyframe state ---
         self.last_keyframe_pose: Optional[np.ndarray] = None
         self.last_keyframe_scan: Optional[np.ndarray] = None
         self.keyframe_scans: List[Tuple[np.ndarray, float, float]] = []
         self.keyframe_count = 0
 
-        # --- Scan state ---
         self.last_scan_time = 0.0
-        self.scan_rate_limit = 5.0
+        self.scan_rate_limit = 10.0  # match the sim's 10 Hz scan topic; the per-scan
+                                     # keyframe check is cheap, only matched scans cost
 
-        # --- Publishers / Subscribers ---
         self.map_pub = self.create_publisher(OccupancyGridMsg, map_topic, 10)
         self.odom_pub = self.create_publisher(Odometry, slam_odom_topic, 10)
         self.path_pub = self.create_publisher(Path, slam_path_topic, 10)
@@ -181,26 +152,18 @@ class SlamNode(Node):
         self.get_logger().info(f'  Keyframes: {self.keyframe_distance}m / {self.keyframe_angle}rad')
         self.get_logger().info(f'  Optimise every {self.optimization_interval} keyframes')
 
-    # ==================================================================
-    # Odometry Callback (provided — same logic as your Week 5 motion model)
-    # ==================================================================
-
     def odom_callback(self, msg: Odometry):
-        """Process odometry: accumulate pose + covariance."""
         odom_pose = self._odom_msg_to_pose(msg)
 
         if self.prev_odom_pose is None:
             self.prev_odom_pose = odom_pose
+            self.current_odom_pose = odom_pose.copy()
             return
 
         relative_odom = utils.pose_difference(self.prev_odom_pose, odom_pose)
 
-        # This calls YOUR function from Week 5!
         motion_cov = compute_motion_covariance(
             relative_odom, self.alpha1, self.alpha2, self.alpha3, self.alpha4)
-
-        if motion_cov is None:
-            motion_cov = np.zeros((3, 3))
 
         J1, J2 = utils.pose_compose_jacobians(self.current_odom_pose, relative_odom)
         self.current_odom_pose = utils.pose_compose(self.current_odom_pose, relative_odom)
@@ -210,12 +173,7 @@ class SlamNode(Node):
         self.prev_odom_pose = odom_pose
         self._publish_odometry()
 
-    # ==================================================================
-    # Scan Callback (provided)
-    # ==================================================================
-
     def scan_callback(self, msg: LaserScan):
-        """Process scan: check for keyframe, dispatch to _process_keyframe."""
         if self.prev_odom_pose is None:
             return
 
@@ -229,46 +187,17 @@ class SlamNode(Node):
         elif self._should_add_keyframe(self.current_odom_pose, self.last_keyframe_pose):
             self._process_keyframe(msg)
 
-    # ========================================================================
-    # STUDENT TODO #1: Keyframe Selection
-    # ========================================================================
-
     def _should_add_keyframe(self, current_pose: np.ndarray,
                               last_keyframe_pose: np.ndarray) -> bool:
-        """
-        Check if robot has moved enough to add a new keyframe.
-
-        Args:
-            current_pose:      Current odometry pose [x, y, theta]
-            last_keyframe_pose: Previous keyframe's pose
-
-        Returns:
-            True if enough motion has occurred
-
-        Algorithm:
-            1. dist = sqrt((x - xk)^2 + (y - yk)^2)
-            2. angle = |normalize_angle(theta - theta_k)|
-            3. return dist > self.keyframe_distance or angle > self.keyframe_angle
-
-        Hints:
-            - ~4 lines of code
-        """
-        # TODO: YOUR CODE HERE
-        pass
-
-    # ========================================================================
-    # STUDENT TODO #2: Process Keyframe (The SLAM Loop)
-    # ========================================================================
+        """Return True once the robot has translated or rotated past the thresholds."""
+        dx = current_pose[0] - last_keyframe_pose[0]
+        dy = current_pose[1] - last_keyframe_pose[1]
+        dist = np.sqrt(dx * dx + dy * dy)
+        angle = abs(utils.normalize_angle(current_pose[2] - last_keyframe_pose[2]))
+        return dist > self.keyframe_distance or angle > self.keyframe_angle
 
     def _process_keyframe(self, scan_msg: LaserScan):
-        """
-        Process a new keyframe: add to graph, match scans, optimise.
-
-        This is the core SLAM loop. You fill in 4 marked sections;
-        everything else (scan conversion, state updates, map rebuild)
-        is provided.
-        """
-        # --- PROVIDED: Convert scan to point array ---
+        """Core SLAM loop: add node, add edges (odom + scan-match), optimise."""
         ranges = np.array(scan_msg.ranges)
         angle_increment = scan_msg.angle_increment
         scan_points = scans_from_ranges(
@@ -277,44 +206,64 @@ class SlamNode(Node):
             max_range=self.occupancy_grid.max_range,
             lidar_yaw_offset=self.lidar_yaw_offset)
 
-        # ==============================================================
-        # TODO Section 1: Add a new node to the pose graph
-        #   node_id = self.pose_graph.add_node(???)
-        # ==============================================================
-        node_id = None  # YOUR CODE HERE (1 line)
+        node_id = self.pose_graph.add_node(self.current_odom_pose)
 
         if self.last_keyframe_pose is not None and self.last_keyframe_scan is not None:
-            # --- PROVIDED: Compute relative odometry ---
             odom_relative = utils.pose_difference(
                 self.last_keyframe_pose, self.current_odom_pose)
-            odom_cov = self.current_odom_cov.copy()
-            for i in range(3):
-                odom_cov[i, i] = max(odom_cov[i, i], 1e-4)
 
-            # ==============================================================
-            # TODO Section 2: Add an ODOMETRY EDGE to the pose graph
-            #   from_id = node_id - 1,  to_id = node_id
-            #   measurement = odom_relative
-            #   covariance = odom_cov
-            # ==============================================================
-            pass  # YOUR CODE HERE (1 line)
-
-            # --- PROVIDED: Run scan matching ---
+            # Run scan-match first so we know whether to trust odom on this
+            # keyframe (saturation -> odom is also unreliable).
             matched_pose, match_cov, match_score = self.scan_matcher.match(
                 self.last_keyframe_scan, scan_points, odom_relative)
 
-            # ==============================================================
-            # TODO Section 3: If match is good, add a SCAN-MATCH EDGE
-            #   Check: match_score > self.scan_matcher.min_score
-            #   Before adding, apply covariance floor:
-            #     match_cov[0,0] = max(match_cov[0,0], self.scan_match_cov_xy)
-            #     match_cov[1,1] = max(match_cov[1,1], self.scan_match_cov_xy)
-            #     match_cov[2,2] = max(match_cov[2,2], self.scan_match_cov_theta)
-            #   Then add edge with matched_pose and match_cov
-            # ==============================================================
-            pass  # YOUR CODE HERE (~5 lines)
+            # Detect search-window saturation: the matcher's peak is sitting
+            # within 5% of the search boundary, which means the true optimum
+            # is outside the window and we got a clipped, biased answer.
+            # Score can still look high (random correlations at the edge),
+            # so min_score alone won't catch it. Threshold loosened from 0.85
+            # to 0.95 -- 0.85 was rejecting too many borderline-good matches
+            # and starving the graph of scan-match edges.
+            sx = self.scan_matcher.search_x
+            sy = self.scan_matcher.search_y
+            st = self.scan_matcher.search_theta
+            shift = matched_pose - odom_relative
+            saturated = (abs(shift[0]) >= 0.95 * sx or
+                         abs(shift[1]) >= 0.95 * sy or
+                         abs(shift[2]) >= 0.95 * st)
 
-        # --- PROVIDED: Update keyframe state ---
+            # Odometry edge covariance: alpha model on the full delta
+            # (delta^2 scaling means accumulating tiny per-message Q's
+            # under-counts noise by ~100x). When scan-match saturates we
+            # keep odom at full strength -- the keyframe's only anchor.
+            odom_cov = compute_motion_covariance(
+                odom_relative, self.alpha1, self.alpha2,
+                self.alpha3, self.alpha4)
+            for i in range(3):
+                odom_cov[i, i] = max(odom_cov[i, i],
+                                     self.current_odom_cov[i, i],
+                                     1e-4)
+
+            self.pose_graph.add_edge(node_id - 1, node_id, odom_relative, odom_cov)
+
+            if match_score > self.scan_matcher.min_score and not saturated:
+                match_cov[0, 0] = max(match_cov[0, 0], self.scan_match_cov_xy)
+                match_cov[1, 1] = max(match_cov[1, 1], self.scan_match_cov_xy)
+                match_cov[2, 2] = max(match_cov[2, 2], self.scan_match_cov_theta)
+                self.pose_graph.add_edge(node_id - 1, node_id, matched_pose, match_cov)
+                self.get_logger().info(
+                    f'  Scan-match accepted: score={match_score:.3f}, '
+                    f'shift=[{shift[0]:+.3f}, {shift[1]:+.3f}, {shift[2]:+.3f}]')
+            elif saturated:
+                self.get_logger().warn(
+                    f'  Scan-match SATURATED (boundary): score={match_score:.3f}, '
+                    f'shift=[{shift[0]:+.3f}, {shift[1]:+.3f}, {shift[2]:+.3f}] '
+                    f'-- weakened odom edge, no scan-match edge')
+            else:
+                self.get_logger().warn(
+                    f'  Scan-match REJECTED low score: score={match_score:.3f} < '
+                    f'min_score={self.scan_matcher.min_score}')
+
         self.last_keyframe_pose = self.current_odom_pose.copy()
         self.last_keyframe_scan = scan_points
         self.current_odom_cov = np.zeros((3, 3))
@@ -323,15 +272,16 @@ class SlamNode(Node):
             ranges.copy(), scan_msg.angle_min, angle_increment))
         self.keyframe_count += 1
 
-        # ==============================================================
-        # TODO Section 4: Trigger optimisation every N keyframes
-        #   if keyframe_count > 1 and keyframe_count % optimization_interval == 0:
-        #       self._optimize_and_rebuild()
-        #   else:
-        #       update occupancy grid incrementally with this keyframe
-        #       (use self.occupancy_grid.update(...))
-        # ==============================================================
-        pass  # YOUR CODE HERE (~5 lines)
+        if (self.keyframe_count > 1
+                and self.keyframe_count % self.optimization_interval == 0):
+            self._optimize_and_rebuild()
+        else:
+            latest_pose = self.pose_graph.nodes[-1]
+            self.occupancy_grid.update(
+                pose=latest_pose,
+                ranges=ranges,
+                angle_min=scan_msg.angle_min,
+                angle_increment=angle_increment)
 
         self._publish_path()
 
@@ -341,19 +291,13 @@ class SlamNode(Node):
                 f'{self.pose_graph.get_num_nodes()} nodes, '
                 f'{self.pose_graph.get_num_edges()} edges')
 
-    # ==================================================================
-    # Provided: Optimisation and map rebuilding
-    # ==================================================================
-
     def _optimize_and_rebuild(self):
-        """Run graph optimisation and rebuild the occupancy grid."""
         self.get_logger().info(
             f'Optimising ({self.pose_graph.get_num_nodes()} nodes, '
             f'{self.pose_graph.get_num_edges()} edges)...')
 
         graph_optimizer.optimize(self.pose_graph, self.num_iterations)
 
-        # Sync internal state with optimised graph
         optimized_last = self.pose_graph.nodes[-1].copy()
         self.last_keyframe_pose = optimized_last
         self.current_odom_pose = optimized_last
@@ -362,19 +306,21 @@ class SlamNode(Node):
         self.get_logger().info('Optimisation complete.')
 
     def _rebuild_map(self):
-        """Rebuild occupancy grid from scratch using optimised poses."""
+        t0 = time.monotonic()
         self.occupancy_grid.grid = np.zeros_like(self.occupancy_grid.grid)
         poses = self.pose_graph.get_poses()
+        n_rendered = 0
         for i, (ranges, angle_min, angle_increment) in enumerate(self.keyframe_scans):
             if i >= len(poses):
                 break
             self.occupancy_grid.update(
                 pose=poses[i], ranges=ranges,
                 angle_min=angle_min, angle_increment=angle_increment)
-
-    # ==================================================================
-    # Provided: Helpers and publishing
-    # ==================================================================
+            n_rendered += 1
+        n_known = int(np.sum(np.abs(self.occupancy_grid.grid) > 0.1))
+        self.get_logger().info(
+            f'  Map rebuilt: {n_rendered} keyframes rendered, '
+            f'{n_known} known cells, {time.monotonic() - t0:.2f}s')
 
     def _odom_msg_to_pose(self, msg: Odometry) -> np.ndarray:
         x = msg.pose.pose.position.x
@@ -404,9 +350,22 @@ class SlamNode(Node):
                     self.last_keyframe_pose, self.current_odom_pose)
                 corrected = utils.pose_compose(last_graph_pose, rel)
             else:
+                rel = np.zeros(3)
                 corrected = last_graph_pose
         else:
+            rel = self.current_odom_pose
             corrected = self.current_odom_pose
+
+        # Covariance since the last keyframe -- alpha model applied to the full
+        # delta so the ellipse actually grows visibly between keyframes and
+        # snaps back when SLAM commits a new keyframe. The propagated
+        # current_odom_cov is used as a floor (it carries any per-step
+        # residuals).
+        published_cov = compute_motion_covariance(
+            rel, self.alpha1, self.alpha2, self.alpha3, self.alpha4)
+        for i in range(3):
+            published_cov[i, i] = max(
+                published_cov[i, i], self.current_odom_cov[i, i])
 
         msg = Odometry()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -415,7 +374,7 @@ class SlamNode(Node):
         msg.pose.pose.position.x = corrected[0]
         msg.pose.pose.position.y = corrected[1]
         msg.pose.pose.orientation = self._yaw_to_quaternion(corrected[2])
-        msg.pose.covariance = self._3x3_to_6x6_covariance(self.current_odom_cov)
+        msg.pose.covariance = self._3x3_to_6x6_covariance(published_cov)
         self.odom_pub.publish(msg)
 
     def _publish_path(self):
@@ -434,9 +393,15 @@ class SlamNode(Node):
     def publish_map(self):
         if self.keyframe_count == 0:
             return
+        t0 = time.monotonic()
         map_msg = self.occupancy_grid.to_ros_message(
             frame_id='map', timestamp=self.get_clock().now().to_msg())
         self.map_pub.publish(map_msg)
+        n_known = int(np.sum(np.abs(self.occupancy_grid.grid) > 0.1))
+        self.get_logger().info(
+            f'  Map published: {n_known} known cells '
+            f'({100.0*n_known/self.occupancy_grid.grid.size:.2f}% of grid), '
+            f'{time.monotonic() - t0:.2f}s')
 
 
 def main(args=None):

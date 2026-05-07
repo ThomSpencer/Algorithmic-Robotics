@@ -1,25 +1,16 @@
 """
-Dead Reckoning + Occupancy Grid Mapping Launch
+Dead Reckoning + Occupancy Grid Mapping (SIM).
 
-Launches:
-  1. Static transforms (map->odom, base_link->lidar)
-  2. Motion Model Node — dead-reckoning with covariance propagation
-  3. Occupancy Grid Mapper — builds map from odometry + laser scans
+Wired for the Unity Mars sim: succulence/* TF frames and /succulence/* topics.
+Uses params_sim.yaml.
 
 Usage:
-    ros2 launch succulence_rover_ros dead_reckoning.launch.py
+    ros2 launch succulence_rover_ros dead_reckoning_sim.launch.py
 
-    # For physical robot (TurtleBot), override frame names:
-    ros2 launch succulence_rover_ros dead_reckoning.launch.py \\
-        odom_frame:=odom base_link_frame:=base_link lidar_frame:=base_scan
-
-In RViz2:
-  1. Fixed Frame: "map"
-  2. Add Map display       -> topic: /succulence/map/odom_only
-  3. Add Path display      -> topic: /succulence/dead_reckoning/path
-  4. Add Odometry display  -> topic: /succulence/dead_reckoning/odometry
-     (enable "Covariance" checkbox to see uncertainty ellipses)
-  5. Drive the robot and watch the ghost walls appear!
+In RViz2 (Fixed Frame: "map"):
+  - Map      -> /succulence/map/odom_only
+  - Path     -> /succulence/dead_reckoning/path
+  - Odometry -> /succulence/dead_reckoning/odometry
 """
 
 from launch import LaunchDescription
@@ -30,30 +21,20 @@ import os
 
 
 def generate_launch_description():
-    # Config file path
     config_dir = os.path.join(os.path.dirname(__file__), '..', 'config')
-    params_file = os.path.join(config_dir, 'paramsSimulation.yaml')
+    params_file = os.path.join(config_dir, 'params_sim.yaml')
 
-    # Launch arguments for frame names (override for different robots)
     odom_frame_arg = DeclareLaunchArgument(
-        'odom_frame',
-        default_value='succulence/odom',
-        description='Odometry frame (change to "odom" for TurtleBot)')
-
+        'odom_frame', default_value='succulence/odom',
+        description='Odometry frame')
     base_link_frame_arg = DeclareLaunchArgument(
-        'base_link_frame',
-        default_value='succulence/base_link',
-        description='Base link frame (change to "base_link" for TurtleBot)')
-
+        'base_link_frame', default_value='succulence/base_link',
+        description='Base link frame')
     lidar_frame_arg = DeclareLaunchArgument(
-        'lidar_frame',
-        default_value='succulence/lidar_link',
-        description='Lidar frame (change to "base_scan" for TurtleBot)')
-
+        'lidar_frame', default_value='succulence/lidar_link',
+        description='Lidar frame')
     map_frame_arg = DeclareLaunchArgument(
-        'map_frame',
-        default_value='map',
-        description='Map frame')
+        'map_frame', default_value='map', description='Map frame')
 
     return LaunchDescription([
         odom_frame_arg,
@@ -61,7 +42,6 @@ def generate_launch_description():
         lidar_frame_arg,
         map_frame_arg,
 
-        # Static transform: map -> odom (identity — no SLAM correction yet)
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
@@ -75,7 +55,6 @@ def generate_launch_description():
             output='screen',
         ),
 
-        # Static transform: base_link -> lidar_link (identity — lidar aligned with base)
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
@@ -89,7 +68,6 @@ def generate_launch_description():
             output='screen',
         ),
 
-        # Motion Model Node (dead reckoning + covariance)
         Node(
             package='succulence_rover_ros',
             executable='motion_model_node',
@@ -98,7 +76,6 @@ def generate_launch_description():
             parameters=[params_file],
         ),
 
-        # Occupancy Grid Mapper (builds map from odometry + scans)
         Node(
             package='succulence_rover_ros',
             executable='occupancy_grid_mapper_node',

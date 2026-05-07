@@ -1,5 +1,5 @@
 """
-Dead Reckoning + Occupancy Grid Mapping (PHYSICAL TurtleBot).
+Full Mission Stack (PHYSICAL TurtleBot).
 
 Wired for the iRobot Create 3 + RPLidar TurtleBot: /odom, /scan, the
 `odom`/`base_link`/`base_scan` TF frames published by the robot driver,
@@ -7,12 +7,23 @@ and a static map -> odom publisher. Uses params_physical.yaml.
 
 Startup sequence:
     1. Call /reset_pose so the base's published odometry restarts at zero.
-    2. Once the service call returns, bring up the map -> odom static TF
-       and the dead-reckoning nodes — none of them subscribe to /odom
+    2. Once the service call returns, bring up the static TF + SLAM +
+       planner + navigator together — none of them subscribe to /odom
        before the reset has taken effect.
 
+    /scan, /odom
+         |
+         v
+    [ slam_node ] --> /succulence/map, /succulence/slam/odometry
+         |
+         v
+    [ planner_node (A*) ] --> /succulence/plan
+         |
+         v
+    [ navigator_node (pure pursuit) ] --> /cmd_vel
+
 Usage:
-    ros2 launch succulence_rover_ros dead_reckoning_physical.launch.py
+    ros2 launch succulence_rover_ros mission_physical.launch.py
 """
 
 from launch import LaunchDescription
@@ -59,16 +70,24 @@ def generate_launch_description():
 
         Node(
             package='succulence_rover_ros',
-            executable='motion_model_node',
-            name='motion_model',
+            executable='slam_node',
+            name='slam_node',
             output='screen',
             parameters=[params_file],
         ),
 
         Node(
             package='succulence_rover_ros',
-            executable='occupancy_grid_mapper_node',
-            name='occupancy_grid_mapper',
+            executable='planner_node',
+            name='planner_node',
+            output='screen',
+            parameters=[params_file],
+        ),
+
+        Node(
+            package='succulence_rover_ros',
+            executable='navigator_node',
+            name='navigator_node',
             output='screen',
             parameters=[params_file],
         ),
