@@ -39,7 +39,7 @@ motion_model:
       # Larger: pose-uncertainty ellipse grows faster while driving forward,
       #   downstream filters trust odometry less. Smaller: tighter ellipse,
       #   more confidence in wheel odometry.
-      alpha1: 0.12
+      alpha1: 0.1
 
       # alpha2 - Translation variance contributed by rotation. Models how
       # much the rover slides sideways while turning.
@@ -51,7 +51,7 @@ motion_model:
       # drift while driving straight.
       # Larger: forward motion injects more heading uncertainty.
       # Smaller: heading is considered stable during straight-line motion.
-      alpha3: 0.2
+      alpha3: 0.05
 
       # alpha4 - Rotation variance per unit rotation (yaw drift while
       # turning). Primary lever for heading uncertainty.
@@ -63,7 +63,7 @@ motion_model:
       # the oldest are dropped. Purely a visualisation cap.
       # Larger: longer trajectory shown in RViz, more memory.
       # Smaller: shorter trail, lower load.
-      max_trajectory_length: 500
+      max_trajectory_length: 1000
 
 
 # ====================================================================
@@ -136,7 +136,7 @@ occupancy_grid_mapper:
       # min_range Larger: ignores closer returns (filters body reflections).
       # min_range Smaller: includes closer returns (risks self-hits).
       max_range: 4.0
-      min_range: 0.2
+      min_range: 0.1
 
     # See motion_model.lidar above for offsets.
     lidar:
@@ -165,7 +165,7 @@ slam_node:
       #   that are more likely to saturate the search window.
       # Smaller: more keyframes -> denser graph, more CPU per optimisation
       #   pass, but tighter local constraints.
-      keyframe_distance: 0.08
+      keyframe_distance: 0.1
 
       # Rotation between keyframes, in radians.
       # Larger: fewer keyframes during turns -> heading drift accumulates
@@ -179,7 +179,7 @@ slam_node:
       #   show drift longer before snapping.
       # Smaller: optimiser runs more often -> tighter map but more CPU and
       #   more frequent visual snaps.
-      optimization_interval: 4
+      optimization_interval: 5
 
       # Gauss-Newton iterations per optimisation call.
       # Larger: more thorough convergence per call, more CPU per snap.
@@ -198,8 +198,8 @@ slam_node:
       #   weight, slower correction.
       # Smaller: scan-match edges trusted more -> faster correction but
       #   more sensitive to bad matches.
-      scan_match_cov_xy: 0.006
-      scan_match_cov_theta: 0.001
+      scan_match_cov_xy: 0.003
+      scan_match_cov_theta: 0.0015
 
     # See motion_model.lidar above for offsets.
     lidar:
@@ -210,9 +210,9 @@ slam_node:
     # Alpha noise model used for odometry edges in the pose graph. Same
     # interpretation as in the motion_model node above.
     motion_model:
-      alpha1: 0.15
-      alpha2: 0.1
-      alpha3: 0.2
+      alpha1: 0.1
+      alpha2: 0.05
+      alpha3: 0.05
       alpha4: 0.2
 
     scan_matcher:
@@ -223,9 +223,9 @@ slam_node:
       #   to score -> more CPU per match.
       # Smaller: cheaper but the true peak can fall outside the window
       #   and the matcher will silently saturate at the boundary.
-      search_x: 0.55
-      search_y: 0.55
-      search_theta: 0.2
+      search_x: 0.5
+      search_y: 0.5
+      search_theta: 0.1
 
       # Step size when sweeping the search window.
       # Larger: fewer candidates -> faster but coarser localisation.
@@ -241,7 +241,7 @@ slam_node:
       #   for scan-match edges in feature-poor areas.
       # Smaller: more matches accepted -> more edges but more noise from
       #   spurious correlations.
-      min_score: 0.65
+      min_score: 0.45
 
       # Side length of the local rasterised grid used when scoring scans.
       # Larger: matches over a larger area -> better in open spaces, more
@@ -265,10 +265,10 @@ slam_node:
       origin_y: -3.0
       log_odds_occupied: 0.85
       log_odds_free: 0.4
-      log_odds_max: 5.5
-      log_odds_min: -4.0
+      log_odds_max: 5.0
+      log_odds_min: -5.0
       max_range: 4.0
-      min_range: 0.2
+      min_range: 0.1
 
 
 # ====================================================================
@@ -298,7 +298,7 @@ planner_node:
       #   paths cut closer to walls.
       # Smaller: any hint of occupancy blocks A* -> safer but more
       #   "no path" failures while the map is sparse.
-      occupancy_threshold: 50
+      occupancy_threshold: 35
 
       # If true, unmapped cells are treated as obstacles. If false, A*
       # plans optimistically through unknown space and replans as the
@@ -315,11 +315,11 @@ planner_node:
       # Larger: paths stay further from obstacles; narrow gaps may
       #   inflate shut and become "no path".
       # Smaller: paths hug walls; rover may scrape corners.
-      inflation_radius_cells: 8
+      inflation_radius_cells: 5
 
       # Extra traversal cost added for inflated occupied cells.
       # Larger: avoids occupied cells unless there is no alternative.
-      occupied_traversal_cost: 500.0
+      occupied_traversal_cost: 200.0
 
     # Hardcoded mission goal (Kevin's location), in the map frame.
     # Increase x: goal moves east. Decrease x: goal moves west.
@@ -350,19 +350,19 @@ navigator_node:
       # arc to it.
       # Larger: gentle, sweeping turns; cuts corners.
       # Smaller: aggressive, tight tracking of the path; can oscillate.
-      lookahead: 0.3
+      lookahead: 0.2
 
       # Maximum forward speed in m/s.
       # Larger: faster mission completion but stresses scan matching and
       #   widens turning radius at the controller.
       # Smaller: slower but safer; better localisation and tighter turns.
-      max_linear_v: 0.3
+      max_linear_v: 0.1
 
       # Maximum angular speed in rad/s.
       # Larger: tighter turns possible at speed, harder on scan matching
       #   (rotation is the failure mode).
       # Smaller: rover spins more slowly; may struggle on sharp corners.
-      max_angular_v: 0.2
+      max_angular_v: 0.15
 
       # Distance to the goal at which the navigator declares arrival
       # and stops.

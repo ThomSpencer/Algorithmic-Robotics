@@ -32,6 +32,35 @@ _NEIGHBORS = [
 ]
 
 
+def _sign(x: int) -> int:
+    if x > 0:
+        return 1
+    if x < 0:
+        return -1
+    return 0
+
+
+def _ordered_neighbors(current: Cell, goal: Cell) -> List[Tuple[int, int, float]]:
+    """Order neighbors to prefer cardinal steps toward the goal."""
+    dr_goal = goal[0] - current[0]
+    dc_goal = goal[1] - current[1]
+    sdr = _sign(dr_goal)
+    sdc = _sign(dc_goal)
+
+    def priority(nbr: Tuple[int, int, float]) -> int:
+        dr, dc, _ = nbr
+        is_diag = dr != 0 and dc != 0
+        if not is_diag:
+            if (dr == sdr and dc == 0 and sdr != 0) or (dc == sdc and dr == 0 and sdc != 0):
+                return 0
+            return 1
+        if dr == sdr and dc == sdc and sdr != 0 and sdc != 0:
+            return 2
+        return 3
+
+    return [nbr for _, nbr in sorted(enumerate(_NEIGHBORS), key=lambda item: (priority(item[1]), item[0]))]
+
+
 # ============================================================================
 # STUDENT TODO #1: Octile heuristic
 # ============================================================================
@@ -72,9 +101,9 @@ def inflate_obstacles(grid: np.ndarray, radius_cells: int,
     radius_cells. Provided — you do not need to modify this.
 
     Unknown cells (-1) are blocked or free depending on the flag.
-    Inflation uses square dilation for simplicity.
+    Inflation uses circular dilation based on radius_cells.
     """
-    blocked = grid >= occupancy_threshold
+    blocked = (grid >= occupancy_threshold)
     if treat_unknown_as_obstacle:
         blocked |= grid < 0
 
@@ -83,19 +112,30 @@ def inflate_obstacles(grid: np.ndarray, radius_cells: int,
 
     h, w = blocked.shape
     out = np.zeros_like(blocked)
+
+    # Precompute integer offsets within the radius.
+    offsets = []
+    r2 = radius_cells * radius_cells
+    for dr in range(-radius_cells, radius_cells + 1):
+        for dc in range(-radius_cells, radius_cells + 1):
+            if dr * dr + dc * dc <= r2:
+                offsets.append((dr, dc))
+
     rows, cols = np.where(blocked)
     for r, c in zip(rows, cols):
-        r0 = max(0, r - radius_cells)
-        r1 = min(h, r + radius_cells + 1)
-        c0 = max(0, c - radius_cells)
-        c1 = min(w, c + radius_cells + 1)
-        out[r0:r1, c0:c1] = True
+        for dr, dc in offsets:
+            rr = r + dr
+            cc = c + dc
+            if 0 <= rr < h and 0 <= cc < w:
+                out[rr, cc] = True
+
     return out
 
 
 def astar_search(blocked: np.ndarray,
                  start: Cell,
-                 goal: Cell) -> Optional[List[Cell]]:
+                 goal: Cell,
+                 penalty: Optional[np.ndarray] = None) -> Optional[List[Cell]]:
     """
     Run A* over an 8-connected grid.
 
@@ -103,12 +143,15 @@ def astar_search(blocked: np.ndarray,
         blocked: 2D bool array — True where the robot cannot pass.
         start:   (row, col) start cell (must be unblocked).
         goal:    (row, col) goal cell (must be unblocked).
+        penalty: Optional 2D float array of extra traversal costs.
 
     Returns:
         List of (row, col) cells from start to goal inclusive, or None
         if unreachable.
     """
     h, w = blocked.shape
+    if penalty is not None and penalty.shape != blocked.shape:
+        raise ValueError('penalty must match blocked shape')
 
     # --- PROVIDED: Boundary and trivial-case checks ---
     if not (0 <= start[0] < h and 0 <= start[1] < w):
@@ -158,7 +201,7 @@ def astar_search(blocked: np.ndarray,
         # --- PROVIDED: Iterate over 8 neighbours with the defensive checks
         #     (bounds, blocked, closed, corner-cutting). These aren't
         #     interesting algorithmically — they just keep the search safe.
-        for dr, dc, step in _NEIGHBORS:
+        for dr, dc, step in _ordered_neighbors(current, goal):
             nr, nc = cr + dr, cc + dc
             if not (0 <= nr < h and 0 <= nc < w):
                 continue
@@ -178,7 +221,8 @@ def astar_search(blocked: np.ndarray,
             # re-queue with f = g + h. That `f = g + h` line is what
             # makes this A* and not Dijkstra: the heuristic biases the
             # heap toward the goal so we expand far fewer cells.
-            tentative_g = cg + step
+            extra = 0.0 if penalty is None else float(penalty[nr, nc])
+            tentative_g = cg + step + extra
             if tentative_g < g_score.get(neighbor, np.inf):
                 g_score[neighbor] = tentative_g
                 came_from[neighbor] = current

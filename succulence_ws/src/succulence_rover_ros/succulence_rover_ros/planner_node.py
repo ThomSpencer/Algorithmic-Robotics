@@ -6,6 +6,7 @@ runs A* from the robot's current cell to the hardcoded goal cell and
 publishes a nav_msgs/Path in the map frame.
 """
 
+import math
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -30,12 +31,15 @@ class PlannerNode(Node):
         self.declare_parameter('planning.occupancy_threshold')
         self.declare_parameter('planning.treat_unknown_as_obstacle')
         self.declare_parameter('planning.inflation_radius_cells')
+        self.declare_parameter('planning.occupied_traversal_cost')
+        self.declare_parameter('planning.inflated_map_topic', '/succulence/map_inflated')
         self.declare_parameter('goal.x')
         self.declare_parameter('goal.y')
 
         map_topic = self.get_parameter('map_topic').value
         odom_topic = self.get_parameter('odom_topic').value
         plan_topic = self.get_parameter('plan_topic').value
+        inflated_map_topic = self.get_parameter('planning.inflated_map_topic').value
 
         self.map_frame = self.get_parameter('frames.map_frame').value
         self.replan_period = self.get_parameter('planning.replan_period').value
@@ -44,6 +48,8 @@ class PlannerNode(Node):
             self.get_parameter('planning.treat_unknown_as_obstacle').value)
         self.inflation_radius = int(
             self.get_parameter('planning.inflation_radius_cells').value)
+        self.occupied_cost = float(
+            self.get_parameter('planning.occupied_traversal_cost').value)
 
         self.goal_x = float(self.get_parameter('goal.x').value)
         self.goal_y = float(self.get_parameter('goal.y').value)
@@ -53,6 +59,7 @@ class PlannerNode(Node):
         self.consecutive_failures = 0
 
         self.path_pub = self.create_publisher(Path, plan_topic, 10)
+        self.inflated_map_pub = self.create_publisher(OccupancyGridMsg, inflated_map_topic, 10)
         self.create_subscription(OccupancyGridMsg, map_topic, self._map_cb, 10)
         self.create_subscription(Odometry, odom_topic, self._odom_cb, 10)
         self.create_timer(self.replan_period, self._replan)
@@ -68,8 +75,8 @@ class PlannerNode(Node):
         self.robot_xy = (msg.pose.pose.position.x, msg.pose.pose.position.y)
 
     def _world_to_cell(self, x: float, y: float, info) -> tuple[int, int]:
-        col = int((x - info.origin.position.x) / info.resolution)
-        row = int((y - info.origin.position.y) / info.resolution)
+        col = math.floor((x - info.origin.position.x) / info.resolution)
+        row = math.floor((y - info.origin.position.y) / info.resolution)
         return row, col
 
     def _cell_to_world(self, row: int, col: int, info) -> tuple[float, float]:
@@ -85,9 +92,16 @@ class PlannerNode(Node):
         grid = np.frombuffer(bytes(self.latest_map.data), dtype=np.int8).reshape(
             info.height, info.width).copy()
 
-        blocked = inflate_obstacles(
+        inflated_occupied = inflate_obstacles(
             grid, self.inflation_radius,
-            self.occ_threshold, self.unknown_as_obstacle)
+            self.occ_threshold, False)
+        blocked = (grid < 0) if self.unknown_as_obstacle else np.zeros_like(
+            inflated_occupied, dtype=bool)
+
+        penalty = np.zeros_like(grid, dtype=np.float32)
+        penalty[inflated_occupied] = self.occupied_cost
+
+        self._publish_inflated_map(grid, inflated_occupied, info)
 
         start = self._world_to_cell(*self.robot_xy, info)
         goal = self._world_to_cell(self.goal_x, self.goal_y, info)
@@ -106,7 +120,11 @@ class PlannerNode(Node):
         if blocked[start]:
             blocked[start] = False
 
-        path_cells = astar_search(blocked, start, goal)
+        # If the goal cell was inflated shut, unblock it so A* can reach it.
+        if blocked[goal]:
+            blocked[goal] = False
+
+        path_cells = astar_search(blocked, start, goal, penalty)
         if path_cells is None:
             self._log_failure('no path found')
             self._publish_empty_path()
@@ -141,6 +159,20 @@ class PlannerNode(Node):
         empty.header.stamp = self.get_clock().now().to_msg()
         empty.header.frame_id = self.map_frame
         self.path_pub.publish(empty)
+
+    def _publish_inflated_map(self, grid: np.ndarray, inflated_mask: np.ndarray, info):
+        """Publish a debug OccupancyGrid showing inflated obstacles."""
+        inflated = np.zeros_like(grid, dtype=np.int8)
+        unknown_mask = grid < 0
+        inflated[unknown_mask] = -1
+        inflated[inflated_mask] = 100
+
+        msg = OccupancyGridMsg()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = self.map_frame
+        msg.info = info
+        msg.data = inflated.ravel().tolist()
+        self.inflated_map_pub.publish(msg)
 
     def _log_failure(self, reason: str):
         self.consecutive_failures += 1

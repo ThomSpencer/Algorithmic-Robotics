@@ -317,6 +317,10 @@ planner_node:
       # Smaller: paths hug walls; rover may scrape corners.
       inflation_radius_cells: 10
 
+      # Extra traversal cost added for inflated occupied cells.
+      # Larger: avoids occupied cells unless there is no alternative.
+      occupied_traversal_cost: 200.0
+
     # Hardcoded mission goal (Kevin's location), in the map frame.
     # Increase x: goal moves east. Decrease x: goal moves west.
     # Increase y: goal moves north. Decrease y: goal moves south.
