@@ -3,3 +3,4 @@
 **/log/*
 succulence_ws/src/succulence_rover_ros/log/*
 succulence_ws/src/succulence_rover_ros/build/*
+succulence_ws/src/succulence_rover_ros/succulence_rover_ros/__pycache__/*
