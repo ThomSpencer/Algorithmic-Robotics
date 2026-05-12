@@ -39,7 +39,7 @@ motion_model:
       # Larger: pose-uncertainty ellipse grows faster while driving forward,
       #   downstream filters trust odometry less. Smaller: tighter ellipse,
       #   more confidence in wheel odometry.
-      alpha1: 0.12
+      alpha1: 0.1
 
       # alpha2 - Translation variance contributed by rotation. Models how
       # much the rover slides sideways while turning.
@@ -51,7 +51,7 @@ motion_model:
       # drift while driving straight.
       # Larger: forward motion injects more heading uncertainty.
       # Smaller: heading is considered stable during straight-line motion.
-      alpha3: 0.2
+      alpha3: 0.05
 
       # alpha4 - Rotation variance per unit rotation (yaw drift while
       # turning). Primary lever for heading uncertainty.
@@ -198,8 +198,8 @@ slam_node:
       #   weight, slower correction.
       # Smaller: scan-match edges trusted more -> faster correction but
       #   more sensitive to bad matches.
-      scan_match_cov_xy: 0.006
-      scan_match_cov_theta: 0.001
+      scan_match_cov_xy: 0.003
+      scan_match_cov_theta: 0.0015
 
     # See motion_model.lidar above for offsets.
     lidar:
@@ -210,10 +210,10 @@ slam_node:
     # Alpha noise model used for odometry edges in the pose graph. Same
     # interpretation as in the motion_model node above.
     motion_model:
-      alpha1: 0.15
-      alpha2: 0.1
-      alpha3: 0.2
-      alpha4: 0.2
+      alpha1: 0.3
+      alpha2: 0.05
+      alpha3: 0.05
+      alpha4: 0.3
 
     scan_matcher:
       # Half-width of the brute-force search window, per axis.
@@ -224,8 +224,8 @@ slam_node:
       # Smaller: cheaper but the true peak can fall outside the window
       #   and the matcher will silently saturate at the boundary.
       search_x: 0.55
-      search_y: 0.55
-      search_theta: 0.2
+      search_y: 0.45
+      search_theta: 0.1
 
       # Step size when sweeping the search window.
       # Larger: fewer candidates -> faster but coarser localisation.
@@ -241,7 +241,7 @@ slam_node:
       #   for scan-match edges in feature-poor areas.
       # Smaller: more matches accepted -> more edges but more noise from
       #   spurious correlations.
-      min_score: 0.65
+      min_score: 0.45
 
       # Side length of the local rasterised grid used when scoring scans.
       # Larger: matches over a larger area -> better in open spaces, more
@@ -265,7 +265,7 @@ slam_node:
       origin_y: -3.0
       log_odds_occupied: 0.85
       log_odds_free: 0.4
-      log_odds_max: 5.5
+      log_odds_max: 5.0
       log_odds_min: -4.0
       max_range: 4.0
       min_range: 0.2
@@ -290,7 +290,7 @@ planner_node:
       # Larger: stable plans, slower reaction to newly mapped obstacles.
       # Smaller: reacts faster but the path can visibly jitter as the
       #   map fills in.
-      replan_period: 4.0
+      replan_period: 3.0
 
       # Cell value (0..100) at or above which a cell is treated as an
       # obstacle by A*.
@@ -315,18 +315,14 @@ planner_node:
       # Larger: paths stay further from obstacles; narrow gaps may
       #   inflate shut and become "no path".
       # Smaller: paths hug walls; rover may scrape corners.
-      inflation_radius_cells: 8
-
-      # Extra traversal cost added for inflated occupied cells.
-      # Larger: avoids occupied cells unless there is no alternative.
-      occupied_traversal_cost: 500.0
+      inflation_radius_cells: 3.5
 
     # Hardcoded mission goal (Kevin's location), in the map frame.
     # Increase x: goal moves east. Decrease x: goal moves west.
     # Increase y: goal moves north. Decrease y: goal moves south.
     goal:
-      x: 0.5
-      y: 2
+      x: 0.25
+      y: 2.35
 
 
 # ====================================================================
@@ -343,32 +339,32 @@ navigator_node:
       # rate.
       # Larger: smoother control, more CPU.
       # Smaller: jerkier control, less load.
-      rate_hz: 10.0
+      rate_hz: 15.0
 
       # Pure-pursuit lookahead distance in metres. The controller picks
       # the path point this far ahead of the rover and drives a circular
       # arc to it.
       # Larger: gentle, sweeping turns; cuts corners.
       # Smaller: aggressive, tight tracking of the path; can oscillate.
-      lookahead: 0.3
+      lookahead: 0.25
 
       # Maximum forward speed in m/s.
       # Larger: faster mission completion but stresses scan matching and
       #   widens turning radius at the controller.
       # Smaller: slower but safer; better localisation and tighter turns.
-      max_linear_v: 0.3
+      max_linear_v: 0.10
 
       # Maximum angular speed in rad/s.
       # Larger: tighter turns possible at speed, harder on scan matching
       #   (rotation is the failure mode).
       # Smaller: rover spins more slowly; may struggle on sharp corners.
-      max_angular_v: 0.2
+      max_angular_v: 0.10
 
       # Distance to the goal at which the navigator declares arrival
       # and stops.
       # Larger: stops further from the exact goal; more forgiving.
       # Smaller: stops closer; may overshoot or miss in noisy odometry.
-      goal_tolerance: 0.05
+      goal_tolerance: 0.1
 
       # Seconds without a fresh plan before the navigator stops the rover
       # as a safety fallback. Must comfortably exceed `replan_period`.

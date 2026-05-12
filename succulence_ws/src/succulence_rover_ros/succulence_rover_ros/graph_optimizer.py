@@ -52,7 +52,7 @@ def compute_jacobians(pose_i: np.ndarray,
     return Ji, Jj
 
 
-def optimize(pose_graph: PoseGraph, num_iterations: int = 10):
+def optimize(pose_graph: PoseGraph, num_iterations: int = 10, frozen_nodes: set | None = None):
     """
     Optimise pose graph using Gauss-Newton least-squares.
     Modifies pose_graph in place.
@@ -90,6 +90,14 @@ def optimize(pose_graph: PoseGraph, num_iterations: int = 10):
 
         # Anchor first node
         H[0:3, 0:3] += sparse.eye(3) * 1e6
+
+        if frozen_nodes:
+            for node_id in frozen_nodes:
+                if node_id < 0 or node_id >= n:
+                    continue
+                idx = 3 * node_id
+                H[idx:idx+3, idx:idx+3] += sparse.eye(3) * 1e6
+                b[idx:idx+3] = 0.0
 
         H_csc = H.tocsc()
         try:

@@ -7,12 +7,12 @@ Panels:
         - /Global Options1
         - /Status1
         - /LaserScan1
-        - /Odometry1
         - /Odometry1/Topic1
         - /Odometry1/Shape1
         - /Odometry1/Covariance1
         - /Odometry1/Covariance1/Position1
         - /Odometry1/Covariance1/Orientation1
+        - /Odometry2
         - /Odometry2/Shape1
         - /Odometry2/Covariance1
         - /Odometry2/Covariance1/Position1
@@ -116,7 +116,7 @@ Visualization Manager:
           Scale: 1
           Value: true
         Value: true
-      Enabled: true
+      Enabled: false
       Keep: 100
       Name: Odometry
       Position Tolerance: 0.10000000149011612
@@ -137,7 +137,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /succulence/odom
-      Value: true
+      Value: false
     - Angle Tolerance: 0.10000000149011612
       Class: rviz_default_plugins/Odometry
       Covariance:
@@ -156,7 +156,7 @@ Visualization Manager:
           Value: true
         Value: true
       Enabled: true
-      Keep: 100
+      Keep: 0
       Name: Odometry
       Position Tolerance: 0.10000000149011612
       Shape:
@@ -330,7 +330,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 21.14327621459961
+      Distance: 59.801822662353516
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -345,10 +345,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.9414708614349365
+      Pitch: 1.0414707660675049
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 3.525036334991455
+      Yaw: 3.2050344944000244
     Saved: ~
 Window Geometry:
   Displays:

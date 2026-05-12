@@ -42,6 +42,8 @@ class ScanMatcher:
                  resolution_x: float,
                  resolution_y: float,
                  resolution_theta: float,
+                 coarse_step_multiplier: float,
+                 fine_window_multiplier: float,
                  local_grid_size: int,
                  local_grid_resolution: float,
                  min_score: float):
@@ -51,6 +53,8 @@ class ScanMatcher:
         self.resolution_x = resolution_x
         self.resolution_y = resolution_y
         self.resolution_theta = resolution_theta
+        self.coarse_step_multiplier = coarse_step_multiplier
+        self.fine_window_multiplier = fine_window_multiplier
         self.local_grid_size = local_grid_size
         self.local_grid_resolution = local_grid_resolution
         self.min_score = min_score
@@ -175,6 +179,68 @@ class ScanMatcher:
 
         # Return as float to match the function signature.
         return float(score)
+
+    def _score_alignment_map(self, occupancy_grid, scan_points: np.ndarray,
+                             pose: np.ndarray) -> float:
+        """
+        Score how well scan_points align with an occupancy grid map.
+
+        Args:
+            occupancy_grid: OccupancyGrid instance (world frame)
+            scan_points:    Nx2 array of scan points in local frame
+            pose:           Candidate pose [x, y, theta] in map frame
+
+        Returns:
+            Correlation score (count of scan points landing on occupied cells)
+        """
+        x, y, theta = pose
+        c, s = np.cos(theta), np.sin(theta)
+
+        px = scan_points[:, 0]
+        py = scan_points[:, 1]
+
+        world_x = c * px - s * py + x
+        world_y = s * px + c * py + y
+
+        cols = ((world_x - occupancy_grid.origin_x)
+                / occupancy_grid.resolution).astype(int)
+        rows = ((world_y - occupancy_grid.origin_y)
+                / occupancy_grid.resolution).astype(int)
+
+        valid = (
+            (rows >= 0) & (rows < occupancy_grid.height) &
+            (cols >= 0) & (cols < occupancy_grid.width)
+        )
+
+        if not np.any(valid):
+            return 0.0
+
+        occupied = occupancy_grid.grid[rows[valid], cols[valid]] > 0.0
+        return float(np.sum(occupied))
+
+    def _search_scores(self,
+                       score_fn,
+                       x_values: np.ndarray,
+                       y_values: np.ndarray,
+                       theta_values: np.ndarray) -> Tuple[dict, float, np.ndarray, Tuple[int, int, int]]:
+        scores = {}
+        best_score = -1.0
+        best_pose = np.array([x_values[0], y_values[0], theta_values[0]])
+        best_idx = (0, 0, 0)
+
+        for ix, x in enumerate(x_values):
+            for iy, y in enumerate(y_values):
+                for it, theta in enumerate(theta_values):
+                    candidate = np.array([x, y, theta])
+                    score = score_fn(candidate)
+                    scores[(ix, iy, it)] = score
+
+                    if score > best_score:
+                        best_score = score
+                        best_pose = candidate
+                        best_idx = (ix, iy, it)
+
+        return scores, best_score, best_pose, best_idx
         
 
     # ========================================================================
@@ -229,74 +295,60 @@ class ScanMatcher:
         # Step 1: Build local occupancy grid from the reference scan
         ref_grid = self._build_local_grid(scan_ref)
 
-        # Step 2: Generate search grid around initial guess
+        # Step 2: Generate coarse search grid around initial guess
         dx_guess, dy_guess, dtheta_guess = initial_guess
+
+        coarse_step_x = self.resolution_x * self.coarse_step_multiplier
+        coarse_step_y = self.resolution_y * self.coarse_step_multiplier
+        coarse_step_theta = self.resolution_theta * self.coarse_step_multiplier
 
         x_values = np.arange(
             dx_guess - self.search_x,
-            dx_guess + self.search_x + self.resolution_x * 0.5,
-            self.resolution_x
+            dx_guess + self.search_x + coarse_step_x * 0.5,
+            coarse_step_x
         )
         y_values = np.arange(
             dy_guess - self.search_y,
-            dy_guess + self.search_y + self.resolution_y * 0.5,
-            self.resolution_y
+            dy_guess + self.search_y + coarse_step_y * 0.5,
+            coarse_step_y
         )
         theta_values = np.arange(
             dtheta_guess - self.search_theta,
-            dtheta_guess + self.search_theta + self.resolution_theta * 0.5,
+            dtheta_guess + self.search_theta + coarse_step_theta * 0.5,
+            coarse_step_theta
+        )
+
+        # Step 3: Coarse search
+        _, coarse_score, coarse_pose, _ = self._search_scores(
+            lambda candidate: self._score_alignment(ref_grid, scan_new, candidate),
+            x_values, y_values, theta_values
+        )
+
+        # Step 4: Fine search around coarse peak
+        fine_window_x = self.resolution_x * self.fine_window_multiplier
+        fine_window_y = self.resolution_y * self.fine_window_multiplier
+        fine_window_theta = self.resolution_theta * self.fine_window_multiplier
+
+        fine_x_values = np.arange(
+            coarse_pose[0] - fine_window_x,
+            coarse_pose[0] + fine_window_x + self.resolution_x * 0.5,
+            self.resolution_x
+        )
+        fine_y_values = np.arange(
+            coarse_pose[1] - fine_window_y,
+            coarse_pose[1] + fine_window_y + self.resolution_y * 0.5,
+            self.resolution_y
+        )
+        fine_theta_values = np.arange(
+            coarse_pose[2] - fine_window_theta,
+            coarse_pose[2] + fine_window_theta + self.resolution_theta * 0.5,
             self.resolution_theta
         )
 
-        # Step 3: Exhaustive search — score every candidate pose
-        scores = {}
-        best_score = -1.0
-        best_pose = initial_guess.copy()
-        best_idx = (0, 0, 0)
-
-        # =============================================
-        # TODO: YOUR CODE HERE
-        # =============================================
-        # Loop over all combinations (ix, x), (iy, y), (it, theta):
-        #   - Build a candidate pose array [x, y, theta]
-        #   - Score it with _score_alignment(ref_grid, scan_new, candidate)
-        #   - Store the score: scores[(ix, iy, it)] = score
-        #   - If this score beats best_score, update best_score, best_pose, best_idx
-        #
-        # After the loop:
-        #   - Compute normalised_score = best_score / len(scan_new)
-        #   - If normalised_score < self.min_score: return (initial_guess, default_cov, 0.0)
-
-        for ix, x in enumerate(x_values):
-            for iy, y in enumerate(y_values):
-                for it, theta in enumerate(theta_values):
-                    # Build the candidate pose
-                    candidate = np.array([x, y, theta])
-
-                    # Compute how well this pose aligns the new scan to the reference grid
-                    score = self._score_alignment(ref_grid, scan_new, candidate)
-
-                    # Store the score at this search-grid index
-                    scores[(ix, iy, it)] = score
-
-                    # Update best result if this candidate is better
-                    if score > best_score:
-                        best_score = score
-                        best_pose = candidate
-                        best_idx = (ix, iy, it) #Build the candidate pose
-                    candidate = np.array([x, y, theta])
-
-                    # Compute how well this pose aligns the new scan to the reference grid
-                    score = self._score_alignment(ref_grid, scan_new, candidate)
-
-                    # Store the score at this search-grid index
-                    scores[(ix, iy, it)] = score
-
-                    # Update best result if this candidate is better
-                    if score > best_score:
-                        best_score = score
-                        best_pose = candidate
-                        best_idx = (ix, iy, it)
+        scores, best_score, best_pose, best_idx = self._search_scores(
+            lambda candidate: self._score_alignment(ref_grid, scan_new, candidate),
+            fine_x_values, fine_y_values, fine_theta_values
+        )
         
         # Convert the raw overlap count into a fraction of scan points matched
         normalized_score = best_score / len(scan_new)
@@ -306,6 +358,92 @@ class ScanMatcher:
             return initial_guess.copy(), default_cov, 0.0
 
         # Step 4: Estimate covariance from the Hessian of the score surface
+        covariance = self._estimate_covariance_from_hessian(
+            scores, best_idx,
+            self.resolution_x, self.resolution_y, self.resolution_theta
+        )
+
+        return best_pose, covariance, normalized_score
+
+    def match_to_map(self, occupancy_grid, scan_points: np.ndarray,
+                     initial_pose: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
+        """
+        Align a scan to the global occupancy grid map.
+
+        Args:
+            occupancy_grid: OccupancyGrid instance (world frame)
+            scan_points:    Nx2 array of scan points in local frame
+            initial_pose:   Initial pose estimate [x, y, theta] in map frame
+
+        Returns:
+            best_pose:  Best pose [x, y, theta] in map frame
+            covariance: 3x3 covariance matrix of the match
+            score:      Normalised score in [0, 1] (0 if match rejected)
+        """
+        default_cov = np.diag([0.1, 0.1, 0.05])
+
+        if len(scan_points) == 0:
+            return initial_pose.copy(), default_cov, 0.0
+
+        x_guess, y_guess, theta_guess = initial_pose
+
+        coarse_step_x = self.resolution_x * self.coarse_step_multiplier
+        coarse_step_y = self.resolution_y * self.coarse_step_multiplier
+        coarse_step_theta = self.resolution_theta * self.coarse_step_multiplier
+
+        x_values = np.arange(
+            x_guess - self.search_x,
+            x_guess + self.search_x + coarse_step_x * 0.5,
+            coarse_step_x
+        )
+        y_values = np.arange(
+            y_guess - self.search_y,
+            y_guess + self.search_y + coarse_step_y * 0.5,
+            coarse_step_y
+        )
+        theta_values = np.arange(
+            theta_guess - self.search_theta,
+            theta_guess + self.search_theta + coarse_step_theta * 0.5,
+            coarse_step_theta
+        )
+
+        _, coarse_score, coarse_pose, _ = self._search_scores(
+            lambda candidate: self._score_alignment_map(
+                occupancy_grid, scan_points, candidate),
+            x_values, y_values, theta_values
+        )
+
+        fine_window_x = self.resolution_x * self.fine_window_multiplier
+        fine_window_y = self.resolution_y * self.fine_window_multiplier
+        fine_window_theta = self.resolution_theta * self.fine_window_multiplier
+
+        fine_x_values = np.arange(
+            coarse_pose[0] - fine_window_x,
+            coarse_pose[0] + fine_window_x + self.resolution_x * 0.5,
+            self.resolution_x
+        )
+        fine_y_values = np.arange(
+            coarse_pose[1] - fine_window_y,
+            coarse_pose[1] + fine_window_y + self.resolution_y * 0.5,
+            self.resolution_y
+        )
+        fine_theta_values = np.arange(
+            coarse_pose[2] - fine_window_theta,
+            coarse_pose[2] + fine_window_theta + self.resolution_theta * 0.5,
+            self.resolution_theta
+        )
+
+        scores, best_score, best_pose, best_idx = self._search_scores(
+            lambda candidate: self._score_alignment_map(
+                occupancy_grid, scan_points, candidate),
+            fine_x_values, fine_y_values, fine_theta_values
+        )
+
+        normalized_score = best_score / len(scan_points)
+
+        if normalized_score < self.min_score:
+            return initial_pose.copy(), default_cov, 0.0
+
         covariance = self._estimate_covariance_from_hessian(
             scores, best_idx,
             self.resolution_x, self.resolution_y, self.resolution_theta

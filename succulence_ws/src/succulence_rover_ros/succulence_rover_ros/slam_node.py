@@ -40,6 +40,9 @@ class SlamNode(Node):
         self.declare_parameter('slam.map_publish_interval')
         self.declare_parameter('slam.scan_match_cov_xy')
         self.declare_parameter('slam.scan_match_cov_theta')
+        self.declare_parameter('slam.prune_stable_cycles')
+        self.declare_parameter('slam.prune_translation_thresh')
+        self.declare_parameter('slam.prune_rotation_thresh')
 
         self.declare_parameter('scan_matcher.search_x')
         self.declare_parameter('scan_matcher.search_y')
@@ -47,6 +50,8 @@ class SlamNode(Node):
         self.declare_parameter('scan_matcher.resolution_x')
         self.declare_parameter('scan_matcher.resolution_y')
         self.declare_parameter('scan_matcher.resolution_theta')
+        self.declare_parameter('scan_matcher.coarse_step_multiplier')
+        self.declare_parameter('scan_matcher.fine_window_multiplier')
         self.declare_parameter('scan_matcher.min_score')
         self.declare_parameter('scan_matcher.local_grid_size')
         self.declare_parameter('scan_matcher.local_grid_resolution')
@@ -85,6 +90,9 @@ class SlamNode(Node):
         map_publish_interval = self.get_parameter('slam.map_publish_interval').value
         self.scan_match_cov_xy = self.get_parameter('slam.scan_match_cov_xy').value
         self.scan_match_cov_theta = self.get_parameter('slam.scan_match_cov_theta').value
+        self.prune_stable_cycles = self.get_parameter('slam.prune_stable_cycles').value
+        self.prune_translation_thresh = self.get_parameter('slam.prune_translation_thresh').value
+        self.prune_rotation_thresh = self.get_parameter('slam.prune_rotation_thresh').value
 
         self.alpha1 = self.get_parameter('motion_model.alpha1').value
         self.alpha2 = self.get_parameter('motion_model.alpha2').value
@@ -100,6 +108,8 @@ class SlamNode(Node):
             resolution_x=self.get_parameter('scan_matcher.resolution_x').value,
             resolution_y=self.get_parameter('scan_matcher.resolution_y').value,
             resolution_theta=self.get_parameter('scan_matcher.resolution_theta').value,
+            coarse_step_multiplier=self.get_parameter('scan_matcher.coarse_step_multiplier').value,
+            fine_window_multiplier=self.get_parameter('scan_matcher.fine_window_multiplier').value,
             local_grid_size=self.get_parameter('scan_matcher.local_grid_size').value,
             local_grid_resolution=self.get_parameter('scan_matcher.local_grid_resolution').value,
             min_score=self.get_parameter('scan_matcher.min_score').value,
@@ -132,6 +142,8 @@ class SlamNode(Node):
         self.last_keyframe_scan: Optional[np.ndarray] = None
         self.keyframe_scans: List[Tuple[np.ndarray, float, float]] = []
         self.keyframe_count = 0
+        self.stable_counts: List[int] = []
+        self.frozen_nodes = set()
 
         self.last_scan_time = 0.0
         self.scan_rate_limit = 10.0  # match the sim's 10 Hz scan topic; the per-scan
@@ -251,9 +263,6 @@ class SlamNode(Node):
                 match_cov[1, 1] = max(match_cov[1, 1], self.scan_match_cov_xy)
                 match_cov[2, 2] = max(match_cov[2, 2], self.scan_match_cov_theta)
                 self.pose_graph.add_edge(node_id - 1, node_id, matched_pose, match_cov)
-                self.get_logger().info(
-                    f'  Scan-match accepted: score={match_score:.3f}, '
-                    f'shift=[{shift[0]:+.3f}, {shift[1]:+.3f}, {shift[2]:+.3f}]')
             elif saturated:
                 self.get_logger().warn(
                     f'  Scan-match SATURATED (boundary): score={match_score:.3f}, '
@@ -263,6 +272,39 @@ class SlamNode(Node):
                 self.get_logger().warn(
                     f'  Scan-match REJECTED low score: score={match_score:.3f} < '
                     f'min_score={self.scan_matcher.min_score}')
+
+        if self.pose_graph.get_num_nodes() > 1:
+            n_known = int(np.sum(self.occupancy_grid.grid > 0.1))
+            if n_known > 0:
+                map_pose, map_cov, map_score = self.scan_matcher.match_to_map(
+                    self.occupancy_grid, scan_points, self.current_odom_pose)
+
+                sx = self.scan_matcher.search_x
+                sy = self.scan_matcher.search_y
+                st = self.scan_matcher.search_theta
+                shift = map_pose - self.current_odom_pose
+                saturated = (abs(shift[0]) >= 0.95 * sx or
+                             abs(shift[1]) >= 0.95 * sy or
+                             abs(shift[2]) >= 0.95 * st)
+
+                if map_score > self.scan_matcher.min_score and not saturated:
+                    map_cov[0, 0] = max(map_cov[0, 0], self.scan_match_cov_xy)
+                    map_cov[1, 1] = max(map_cov[1, 1], self.scan_match_cov_xy)
+                    map_cov[2, 2] = max(map_cov[2, 2], self.scan_match_cov_theta)
+                    anchor = self.pose_graph.nodes[0]
+                    measurement = utils.pose_difference(anchor, map_pose)
+                    self.pose_graph.add_edge(0, node_id, measurement, map_cov)
+                    self.get_logger().info(
+                        f'  Map-match accepted: score={map_score:.3f}, '
+                        f'shift=[{shift[0]:+.3f}, {shift[1]:+.3f}, {shift[2]:+.3f}]')
+                elif saturated:
+                    self.get_logger().warn(
+                        f'  Map-match SATURATED (boundary): score={map_score:.3f}, '
+                        f'shift=[{shift[0]:+.3f}, {shift[1]:+.3f}, {shift[2]:+.3f}]')
+                else:
+                    self.get_logger().warn(
+                        f'  Map-match REJECTED low score: score={map_score:.3f} < '
+                        f'min_score={self.scan_matcher.min_score}')
 
         self.last_keyframe_pose = self.current_odom_pose.copy()
         self.last_keyframe_scan = scan_points
@@ -294,9 +336,13 @@ class SlamNode(Node):
     def _optimize_and_rebuild(self):
         self.get_logger().info(
             f'Optimising ({self.pose_graph.get_num_nodes()} nodes, '
-            f'{self.pose_graph.get_num_edges()} edges)...')
+            f'{self.pose_graph.get_num_edges()} edges, '
+            f'{len(self.frozen_nodes)} frozen)...')
 
-        graph_optimizer.optimize(self.pose_graph, self.num_iterations)
+        pre_poses = [pose.copy() for pose in self.pose_graph.nodes]
+        graph_optimizer.optimize(
+            self.pose_graph, self.num_iterations, frozen_nodes=self.frozen_nodes)
+        self._update_frozen_nodes(pre_poses)
 
         optimized_last = self.pose_graph.nodes[-1].copy()
         self.last_keyframe_pose = optimized_last
@@ -304,6 +350,39 @@ class SlamNode(Node):
 
         self._rebuild_map()
         self.get_logger().info('Optimisation complete.')
+
+    def _update_frozen_nodes(self, pre_poses: List[np.ndarray]):
+        n = self.pose_graph.get_num_nodes()
+        if len(self.stable_counts) < n:
+            self.stable_counts.extend([0] * (n - len(self.stable_counts)))
+
+        for i in range(n):
+            if i >= len(pre_poses):
+                self.stable_counts[i] = 0
+                continue
+
+            dx = self.pose_graph.nodes[i][0] - pre_poses[i][0]
+            dy = self.pose_graph.nodes[i][1] - pre_poses[i][1]
+            dtheta = utils.normalize_angle(
+                self.pose_graph.nodes[i][2] - pre_poses[i][2])
+
+            dist = np.hypot(dx, dy)
+            if dist < self.prune_translation_thresh and abs(dtheta) < self.prune_rotation_thresh:
+                self.stable_counts[i] += 1
+            else:
+                self.stable_counts[i] = 0
+
+        keep_recent = 2
+        frozen = {
+            i for i in range(n)
+            if self.stable_counts[i] >= self.prune_stable_cycles
+        }
+        frozen.discard(0)
+
+        for i in range(max(0, n - keep_recent), n):
+            frozen.discard(i)
+
+        self.frozen_nodes = frozen
 
     def _rebuild_map(self):
         t0 = time.monotonic()

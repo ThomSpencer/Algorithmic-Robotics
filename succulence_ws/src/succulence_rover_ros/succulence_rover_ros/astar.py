@@ -62,7 +62,8 @@ def inflate_obstacles(grid: np.ndarray, radius_cells: int,
 
 def astar_search(blocked: np.ndarray,
                  start: Cell,
-                 goal: Cell) -> Optional[List[Cell]]:
+                 goal: Cell,
+                 penalty: Optional[np.ndarray] = None) -> Optional[List[Cell]]:
     """
     Run A* over an 8-connected grid.
 
@@ -70,11 +71,14 @@ def astar_search(blocked: np.ndarray,
         blocked: 2D bool array — True where the robot cannot pass.
         start:   (row, col) start cell (must be unblocked).
         goal:    (row, col) goal cell (must be unblocked).
+        penalty: Optional 2D float array of extra traversal costs.
 
     Returns:
         List of (row, col) cells from start to goal inclusive, or None if unreachable.
     """
     h, w = blocked.shape
+    if penalty is not None and penalty.shape != blocked.shape:
+        raise ValueError('penalty must match blocked shape')
 
     if not (0 <= start[0] < h and 0 <= start[1] < w):
         return None
@@ -118,7 +122,8 @@ def astar_search(blocked: np.ndarray,
             neighbor = (nr, nc)
             if neighbor in closed:
                 continue
-            tentative = cg + step
+            cell_penalty = 0.0 if penalty is None else float(penalty[nr, nc])
+            tentative = cg + step + cell_penalty
             if tentative < g_score.get(neighbor, np.inf):
                 g_score[neighbor] = tentative
                 came_from[neighbor] = current

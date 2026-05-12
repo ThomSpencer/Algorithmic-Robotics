@@ -14,7 +14,7 @@ from geometry_msgs.msg import PoseStamped, Quaternion
 from scipy import ndimage
 from scipy.spatial.transform import Rotation
 
-from .astar import astar_search, inflate_obstacles
+from .astar import astar_search
 
 
 class PlannerNode(Node):
@@ -31,6 +31,7 @@ class PlannerNode(Node):
         self.declare_parameter('planning.occupancy_threshold')
         self.declare_parameter('planning.treat_unknown_as_obstacle')
         self.declare_parameter('planning.inflation_radius_cells')
+        self.declare_parameter('planning.occupied_traversal_cost')
         self.declare_parameter('goal.x')
         self.declare_parameter('goal.y')
 
@@ -45,6 +46,8 @@ class PlannerNode(Node):
             self.get_parameter('planning.treat_unknown_as_obstacle').value)
         self.inflation_radius = int(
             self.get_parameter('planning.inflation_radius_cells').value)
+        self.occupied_cost = float(
+            self.get_parameter('planning.occupied_traversal_cost').value)
 
         self.goal_x = float(self.get_parameter('goal.x').value)
         self.goal_y = float(self.get_parameter('goal.y').value)
@@ -54,10 +57,10 @@ class PlannerNode(Node):
         self.consecutive_failures = 0
 
         self.path_pub = self.create_publisher(Path, plan_topic, 10)
-        # Debug topic: publishes the inflated `blocked` grid as an OccupancyGrid
-        # so you can see in RViz exactly what A* sees. Inflated cells show as
-        # occupied (black), unknown cells remain unknown (dark gray), free cells
-        # stay free (light). Add this topic as a separate Map display in RViz.
+        # Debug topic: publishes the A* cost field as an OccupancyGrid so you can
+        # see in RViz what the planner sees. Obstacles show as occupied (black),
+        # unknown cells remain unknown (dark gray), and near-obstacle penalties
+        # appear as a gray gradient. Add this topic as a separate Map display.
         self.inflated_pub = self.create_publisher(
             OccupancyGridMsg, plan_topic + '/inflated', 10)
         # Debug topic: publishes the set of cells reachable from the rover
@@ -129,11 +132,21 @@ class PlannerNode(Node):
         grid = np.frombuffer(bytes(self.latest_map.data), dtype=np.int8).reshape(
             info.height, info.width).copy()
 
-        blocked = inflate_obstacles(
-            grid, self.inflation_radius,
-            self.occ_threshold, self.unknown_as_obstacle)
+        obstacle_mask = grid >= self.occ_threshold
+        if self.unknown_as_obstacle:
+            obstacle_mask |= grid < 0
 
-        self._publish_inflated_debug(blocked, grid, info)
+        blocked = obstacle_mask.copy()
+        penalty = np.zeros_like(grid, dtype=np.float32)
+        if self.inflation_radius > 0 and self.occupied_cost > 0.0:
+            dist = ndimage.distance_transform_edt(~obstacle_mask)
+            mask = (dist > 0.0) & (dist <= self.inflation_radius)
+            penalty[mask] = (
+                (self.inflation_radius - dist[mask] + 1.0)
+                / self.inflation_radius
+            ) * self.occupied_cost
+
+        self._publish_inflated_debug(blocked, penalty, grid, info)
 
         start = self._world_to_cell(*self.robot_xy, info)
         goal = self._world_to_cell(self.goal_x, self.goal_y, info)
@@ -167,7 +180,7 @@ class PlannerNode(Node):
         # connectivity. If goal lies in the gray region, that's the disconnect.
         self._publish_reachable_debug(blocked, start, info)
 
-        path_cells = astar_search(blocked, start, goal)
+        path_cells = astar_search(blocked, start, goal, penalty)
         if path_cells is None:
             if goal_blocked:
                 gx, gy = self._cell_to_world(goal[0], goal[1], info)
@@ -259,12 +272,19 @@ class PlannerNode(Node):
         msg.data = debug.flatten().tolist()
         self.reachable_pub.publish(msg)
 
-    def _publish_inflated_debug(self, blocked: np.ndarray, grid: np.ndarray, info):
-        # Build a debug OccupancyGrid showing what A* actually sees: anything
-        # blocked (originally occupied OR inflated) becomes 100, originally
-        # unknown cells that didn't get blocked stay -1, the rest stay 0.
+    def _publish_inflated_debug(self, blocked: np.ndarray, penalty: np.ndarray,
+                                grid: np.ndarray, info):
+        # Build a debug OccupancyGrid showing obstacle costs: blocked cells are 100,
+        # unknown stays -1, and penalty is scaled into 1..99 for a gradient.
         debug = np.zeros_like(grid, dtype=np.int8)
         debug[grid < 0] = -1
+
+        if penalty is not None and np.any(penalty > 0.0):
+            max_penalty = float(np.max(penalty))
+            if max_penalty > 0.0:
+                scaled = np.clip((penalty / max_penalty) * 99.0, 0.0, 99.0)
+                debug[penalty > 0.0] = scaled[penalty > 0.0].astype(np.int8)
+
         debug[blocked] = 100
 
         msg = OccupancyGridMsg()

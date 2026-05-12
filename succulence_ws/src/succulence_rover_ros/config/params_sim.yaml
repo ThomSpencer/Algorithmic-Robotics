@@ -201,6 +201,12 @@ slam_node:
       scan_match_cov_xy: 0.003
       scan_match_cov_theta: 0.0015
 
+      # Freeze nodes that move less than these thresholds for several
+      # optimization cycles. Frozen nodes stay in the map but stop updating.
+      prune_stable_cycles: 3
+      prune_translation_thresh: 0.05
+      prune_rotation_thresh: 0.02
+
     # See motion_model.lidar above for offsets.
     lidar:
       x_offset: 0.0
@@ -234,6 +240,12 @@ slam_node:
       resolution_x: 0.025
       resolution_y: 0.025
       resolution_theta: 0.02
+
+      # Coarse-to-fine search multipliers.
+      # coarse_step = resolution * coarse_step_multiplier
+      # fine_window = resolution * fine_window_multiplier (centered on coarse peak)
+      coarse_step_multiplier: 2.0
+      fine_window_multiplier: 1.0
 
       # Minimum normalised correlation score for a scan-match to be
       # accepted as an edge.
@@ -309,17 +321,15 @@ planner_node:
       #   hit something the map hasn't yet revealed.
       treat_unknown_as_obstacle: false
 
-      # Number of grid cells to inflate every obstacle by. Acts as the
-      # safety margin between the planner's idea of "free" and the rover's
-      # actual footprint.
-      # Larger: paths stay further from obstacles; narrow gaps may
-      #   inflate shut and become "no path".
+      # Number of grid cells over which obstacle cost tapers down.
+      # Larger: paths stay further from obstacles via higher nearby cost.
       # Smaller: paths hug walls; rover may scrape corners.
       inflation_radius_cells: 10
 
-      # Extra traversal cost added for inflated occupied cells.
-      # Larger: avoids occupied cells unless there is no alternative.
-      occupied_traversal_cost: 200.0
+      # Maximum traversal cost applied at obstacle boundaries (tapers
+      # to zero over inflation_radius_cells).
+      # Larger: avoids near-obstacle cells unless there is no alternative.
+      occupied_traversal_cost: 80.0
 
     # Hardcoded mission goal (Kevin's location), in the map frame.
     # Increase x: goal moves east. Decrease x: goal moves west.
@@ -356,19 +366,19 @@ navigator_node:
       # Larger: faster mission completion but stresses scan matching and
       #   widens turning radius at the controller.
       # Smaller: slower but safer; better localisation and tighter turns.
-      max_linear_v: 0.25
+      max_linear_v: 0.5
 
       # Maximum angular speed in rad/s.
       # Larger: tighter turns possible at speed, harder on scan matching
       #   (rotation is the failure mode).
       # Smaller: rover spins more slowly; may struggle on sharp corners.
-      max_angular_v: 0.75
+      max_angular_v: 0.2
 
       # Distance to the goal at which the navigator declares arrival
       # and stops.
       # Larger: stops further from the exact goal; more forgiving.
       # Smaller: stops closer; may overshoot or miss in noisy odometry.
-      goal_tolerance: 0.05
+      goal_tolerance: 0.1
 
       # Seconds without a fresh plan before the navigator stops the rover
       # as a safety fallback. Must comfortably exceed `replan_period`.
