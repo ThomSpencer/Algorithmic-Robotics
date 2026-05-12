@@ -239,14 +239,9 @@ class OccupancyGrid:
             if np.isnan(r) or r < self.min_range:
                 continue
 
-            # If the beam exceeds max range, treat it as free space only,
-            # with reduced confidence.
-            hit_is_valid = True
-            free_scale = 1.0
+            # If the beam exceeds max range, it has no return; skip it.
             if r > self.max_range:
-                r = self.max_range
-                hit_is_valid = False
-                free_scale = 0.25
+                continue
 
             # Compute beam angle in world frame (including lidar yaw offset)
             beam_angle = robot_theta + self.lidar_yaw_offset + (angle_min + i * angle_increment)
@@ -268,13 +263,12 @@ class OccupancyGrid:
             # Update free space cells
             for (row, col) in free_cells:
                 if self.is_valid_cell(row, col):
-                    self.grid[row, col] += self.log_odds_free * free_scale
+                    self.grid[row, col] += self.log_odds_free
                     self.grid[row, col] = max(self.grid[row, col], self.log_odds_min)
 
             # Update occupied endpoint only for in-range returns
-            if hit_is_valid:
-                self.grid[end_row, end_col] += self.log_odds_occ
-                self.grid[end_row, end_col] = min(self.grid[end_row, end_col], self.log_odds_max)
+            self.grid[end_row, end_col] += self.log_odds_occ
+            self.grid[end_row, end_col] = min(self.grid[end_row, end_col], self.log_odds_max)
 
     # ========================================================================
     # Provided helper methods (do not modify)
